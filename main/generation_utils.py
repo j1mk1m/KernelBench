@@ -22,7 +22,7 @@ def generate_sample_single(work: WorkArgs, config, llm_client, run_dir: str, rul
             f.write(custom_cuda_prompt)
 
     # Query server with constructed prompt
-    custom_cuda = llm_client.text_completion(custom_cuda_prompt, reasoning_effort="low")["choices"][0]["message"]["content"]
+    custom_cuda = llm_client.text_completion(custom_cuda_prompt)["choices"][0]["text"]
     if config.log_response:
         response_path = os.path.join(run_dir, f"level_{work.level}_problem_{work.problem_id}_sample_{work.sample_id}_response.txt")
         with open(response_path, "w") as f:

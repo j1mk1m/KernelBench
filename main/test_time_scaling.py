@@ -27,7 +27,7 @@ Implements basic test-time scaling approaches
 4. Stanford: NL idea gen + branching (TODO)
 """
 
-def base(config, level, problem_id_range: range, llm_client: callable, run_dir: str):
+def base(config, level, problem_id_range: range, llm_client: callable, run_dir: str, rule_path=None):
     """
     Base approach
     """
@@ -42,13 +42,13 @@ def base(config, level, problem_id_range: range, llm_client: callable, run_dir: 
             )
         )
     
-    batch_generate(workload, config, llm_client, run_dir)    
+    batch_generate(workload, config, llm_client, run_dir, rule_path)    
     
     eval_file_path = os.path.join(run_dir, f"eval_results.json")
     batch_eval(workload, config, run_dir, eval_file_path)
 
 
-def best_of_n(config, level, problem_id_range: range, llm_client: callable, run_dir: str):
+def best_of_n(config, level, problem_id_range: range, llm_client: callable, run_dir: str, rule_path=None):
     """
     Best-of-N approach
     Generate num_samples for each problem independently
@@ -67,7 +67,7 @@ def best_of_n(config, level, problem_id_range: range, llm_client: callable, run_
                 )
             )
         
-        batch_generate(workload, config, llm_client, run_dir)     
+        batch_generate(workload, config, llm_client, run_dir, rule_path)     
         batch_eval(workload, config, run_dir, eval_file_path) 
 
 
@@ -98,7 +98,7 @@ def iterative_refinement(config, level, problem_id_range: range, llm_client: cal
         batch_eval(workload, config, run_dir, eval_file_path)
 
 
-def metr(config, level, problem_id_range: range, llm_client: callable, run_dir: str):
+def metr(config, level, problem_id_range: range, llm_client: callable, run_dir: str, rule_path=None):
     """
     METR approach
     1. Generate 8 samples in parallel
@@ -141,7 +141,7 @@ def metr(config, level, problem_id_range: range, llm_client: callable, run_dir: 
                 )
             )
     
-    batch_generate(workload, config, llm_client, run_dir)
+    batch_generate(workload, config, llm_client, run_dir, rule_path)
     batch_eval(workload, config, run_dir, eval_file_path)
 
     # 2. Continue generating samples until we reach num_samples
@@ -157,11 +157,11 @@ def metr(config, level, problem_id_range: range, llm_client: callable, run_dir: 
                 )
             )
             
-        batch_generate(workload, config, llm_client, run_dir)
+        batch_generate(workload, config, llm_client, run_dir, rule_path)
         batch_eval(workload, config, run_dir, eval_file_path)
 
 
-def stanford(config, level, problem_id_range: range, llm_client: callable, run_dir: str):
+def stanford(config, level, problem_id_range: range, llm_client: callable, run_dir: str, rule_path=None):
     """
     Stanford approach: Beam Search variant
     """
@@ -181,7 +181,7 @@ def stanford(config, level, problem_id_range: range, llm_client: callable, run_d
                     )
                 )
         
-        batch_generate(workload, config, llm_client, run_dir)
+        batch_generate(workload, config, llm_client, run_dir, rule_path)
         batch_eval(workload, config, run_dir, eval_file_path)
 
 
@@ -245,19 +245,20 @@ def main(config):
                                    default_temperature=config.temperature,
                                    default_max_tokens=config.max_tokens)
     
+    rule_path = config.autorule_path if config.autorule else None
 
     # Run the test-time scaling approach
     match config.method:
         case "base":
-            base(config, config.level, problem_id_range, llm_client, run_dir)
+            base(config, config.level, problem_id_range, llm_client, run_dir, rule_path)
         case "best-of-N":
-            best_of_n(config, config.level, problem_id_range, llm_client, run_dir)
+            best_of_n(config, config.level, problem_id_range, llm_client, run_dir, rule_path)
         case "iterative refinement":
-            iterative_refinement(config, config.level, problem_id_range, llm_client, run_dir)
+            iterative_refinement(config, config.level, problem_id_range, llm_client, run_dir, rule_path)
         case "METR":
-            metr(config, config.level, problem_id_range, llm_client, run_dir)
+            metr(config, config.level, problem_id_range, llm_client, run_dir, rule_path)
         case "Stanford":
-            stanford(config, config.level, problem_id_range, llm_client, run_dir)
+            stanford(config, config.level, problem_id_range, llm_client, run_dir, rule_path)
         case _:
             raise ValueError(f"Invalid method: {config.method}")
  

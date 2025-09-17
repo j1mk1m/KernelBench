@@ -32,6 +32,10 @@ METHOD_TO_NAME = {
     "best_of_n": "Best-of-N",
     "IR": "Iterative Refinement",
     "metr": "METR",
+    "base_rules_filtered_claude": "Base (rules)",
+    "best_of_n_rules_filtered_claude": "Best-of-N (rules)",
+    "IR_rules_filtered_claude": "IR (rules)",
+    "metr_rules_filtered_claude": "METR (rules)",
 }
 
 

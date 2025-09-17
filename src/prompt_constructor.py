@@ -395,7 +395,7 @@ Here is your idea for how to improve the kernel:
 
 def generate_prompt_iterative_refinement(work: WorkArgs, config, ref_arch_src: str, llm_client, run_dir: str, triton=False, rule_path=None) -> str:
     if work.sample_id < config.num_parallel:
-        return prompt_main(ref_arch_src, config, triton)
+        return prompt_main(ref_arch_src, config, triton, rule_path)
     
     # Fetch previous history of kernels
     history = []

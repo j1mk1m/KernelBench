@@ -29,7 +29,7 @@ def add_eval_args(parser):
     # Kernel evaluation
     parser.add_argument("--num_correct_trials", type=int, default=5)
     parser.add_argument("--num_perf_trials", type=int, default=100)
-    parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--measure_performance", type=bool, default=True)
 
 
@@ -54,6 +54,9 @@ def parse_test_time_scaling_args():
     parser.add_argument("--_tags", type=str, default="test_test_time_scaling")
 
     parser.add_argument("--run_name", type=str, required=True)
+
+    parser.add_argument("--autorule", action="store_true")
+    parser.add_argument("--autorule_path", type=str, default=None)
 
     # Methods
     parser.add_argument("--method", type=str, default="base")
