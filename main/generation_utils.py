@@ -8,26 +8,25 @@ import traceback
 from src.utils import maybe_multithread, extract_last_code, WorkArgs
 from src.prompt_constructor import generate_prompt
 from src.dataset import fetch_ref_arch_from_level_problem_id
-from src.run_utils import check_if_kernel_exists
+from src.run_utils import check_if_response_exists
 
 
-def generate_sample_single(work: WorkArgs, config, inference_server: callable, run_dir: str) -> bool:
+def generate_sample_single(work: WorkArgs, config, llm_client, run_dir: str, rule_path=None) -> bool:
     ref_arch_src, _ = fetch_ref_arch_from_level_problem_id(work.level, work.problem_id, config.dataset_src)
 
     # Construct Prompt   
-    custom_cuda_prompt = generate_prompt(work, config, ref_arch_src, inference_server, run_dir)
+    custom_cuda_prompt = generate_prompt(work, config, ref_arch_src, llm_client, run_dir, rule_path)
     if config.log_prompt:
         prompt_path = os.path.join(run_dir, f"level_{work.level}_problem_{work.problem_id}_sample_{work.sample_id}_prompt.txt")
         with open(prompt_path, "w") as f:
             f.write(custom_cuda_prompt)
 
     # Query server with constructed prompt
-    custom_cuda, reasoning_trace, usage = inference_server(custom_cuda_prompt)
+    custom_cuda = llm_client.text_completion(custom_cuda_prompt, reasoning_effort="low")["choices"][0]["message"]["content"]
     if config.log_response:
         response_path = os.path.join(run_dir, f"level_{work.level}_problem_{work.problem_id}_sample_{work.sample_id}_response.txt")
-        response = f"REASONING TRACE:\n{reasoning_trace}\n\nANSWER:\n{custom_cuda}\n\nUsage:\n{usage}"
         with open(response_path, "w") as f:
-            f.write(response)
+            f.write(custom_cuda)
     custom_cuda = extract_last_code(custom_cuda, ["python", "cpp"])
 
     # check LLM is able to generate custom CUDA code
@@ -43,9 +42,9 @@ def generate_sample_single(work: WorkArgs, config, inference_server: callable, r
     
     return True
 
-def generate_sample_launcher(work: WorkArgs, config, inference_server: callable, run_dir: str):
+def generate_sample_launcher(work: WorkArgs, config, llm_client, run_dir: str, rule_path=None):
     try:
-        return generate_sample_single(work, config, inference_server, run_dir)
+        return generate_sample_single(work, config, llm_client, run_dir, rule_path)
     except Exception as e:
         print(f"Error generating problem {work.problem_id} sample {work.sample_id}: {e}")
         print(traceback.format_exc()) 
@@ -55,10 +54,11 @@ def generate_sample_launcher(work: WorkArgs, config, inference_server: callable,
 def batch_generate(
     total_work: list[WorkArgs],
     config,
-    inference_server: callable,
+    llm_client,
     run_dir: str,
+    rule_path=None
 ):
-    total_work = [work for work in total_work if not check_if_kernel_exists(run_dir, work.level, work.problem_id, work.sample_id)]
+    total_work = [work for work in total_work if not check_if_response_exists(run_dir, work.level, work.problem_id, work.sample_id)]
     return maybe_multithread(generate_sample_launcher, 
                       total_work, 
                       config.num_workers, 
@@ -66,7 +66,8 @@ def batch_generate(
                       time_interval=config.api_query_interval, 
                       # extra args
                       config=config, 
-                      inference_server=inference_server,
-                      run_dir=run_dir
+                      llm_client=llm_client,
+                      run_dir=run_dir,
+                      rule_path=rule_path
                       )
 
