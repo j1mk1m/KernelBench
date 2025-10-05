@@ -19,7 +19,7 @@ from tqdm import tqdm
 # API clients
 from together import Together
 from openai import OpenAI
-import google.generativeai as genai
+import google.genai as genai
 import anthropic
 
 # from datasets import load_dataset

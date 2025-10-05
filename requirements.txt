@@ -8,10 +8,10 @@ torch==2.5.0
 tqdm
 datasets
 transformers
-google-generativeai
+google-genai
 together
 pytest
 ninja
-archon-ai
+# archon-ai
 einops
 dotenv

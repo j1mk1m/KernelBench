@@ -7,13 +7,13 @@ import random
 import re
 import hashlib
 
-REPO_TOP_PATH = os.path.abspath(
+KB_ROOT = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__),
         "..",
     )
 )
-KERNEL_BENCH_PATH = os.path.join(REPO_TOP_PATH, "KernelBench")
+KERNEL_BENCH_PATH = os.path.join(KB_ROOT, "KernelBench")
 
 
 def assign_problem_hash(problem_path: str) -> list[int]:
@@ -144,3 +144,46 @@ level3_representative_subset = [
 ]
 
 level3_representative_subset_problem_ids = [1, 5, 8, 11, 20, 33, 38, 43]
+
+
+################################################################################
+# Fetch Reference Architecture
+################################################################################
+def fetch_ref_arch_from_problem_id(dataset, problem_id: int, dataset_src: str) -> tuple[str, str] | None:
+    """
+    Fetch reference architecture from problem directory
+    Either from Hugging Face or Local Dataset
+    """
+    if dataset_src == "huggingface":
+        curr_problem_row = dataset.filter(lambda x: x["problem_id"] == problem_id, num_proc=1, desc=None)
+        ref_arch_src = curr_problem_row["code"][0]
+        problem_name = curr_problem_row["name"][0]
+    
+    elif dataset_src == "local":
+        problem_idx_in_dataset = problem_id - 1 # due to dataset list being 0-indexed locally
+        ref_arch_path = dataset[problem_idx_in_dataset]
+
+        problem_name = os.path.basename(ref_arch_path)
+        ref_arch_src = read_file(ref_arch_path)
+
+    # Extract problem number from problem name (e.g. "1" from "1_Square_matrix_multiplication_.py")
+    problem_number = int(problem_name.split("_")[0])
+    assert problem_number == problem_id, f"Problem number in filename ({problem_number}) does not match config problem_id ({problem_id})"
+    
+    return ref_arch_src, problem_name
+
+def fetch_ref_arch_from_level_problem_id(level: int, problem_id: int, dataset_src: str) -> tuple[str, str] | None:
+    if dataset_src == "local":
+        directory = os.path.join(KERNEL_BENCH_PATH, f"level{level}")
+        for file in os.listdir(directory):
+            if file.startswith(f"{problem_id}_") and file.endswith(".py"):
+                ref_arch_path = os.path.join(directory, file)
+                ref_arch_src = read_file(ref_arch_path)
+                problem_name = os.path.basename(ref_arch_path)
+                return ref_arch_src, problem_name
+        raise FileNotFoundError(f"No file found starting with '{problem_id}_' and ending with '.py' in {directory}")
+    elif dataset_src == "huggingface":
+        dataset = construct_kernelbench_dataset(level)
+        return fetch_ref_arch_from_problem_id(dataset, problem_id, dataset_src)
+    else:
+        raise ValueError(f"Invalid dataset_src: {dataset_src}")

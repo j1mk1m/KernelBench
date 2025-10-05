@@ -12,6 +12,7 @@ from src.utils import read_file
 import os
 import json
 from tqdm import tqdm
+import traceback
 
 """
 Generate baseline time for KernelBench
@@ -116,7 +117,7 @@ def measure_program_time(
             
             model = model.cuda(device=device)
             torch.cuda.synchronize(device=device)
-            elapsed_times = time_execution_with_cuda_event(
+            elapsed_times, _ = time_execution_with_cuda_event(
                 model, *inputs, num_trials=num_trials, verbose=verbose, device=device
             )
             runtime_stats = get_timing_stats(elapsed_times, device=device)
@@ -127,6 +128,7 @@ def measure_program_time(
             return runtime_stats
     except Exception as e:
         print(f"[Eval] Error in Measuring Performance: {e}")
+        traceback.print_exc()
 
 
 
@@ -198,7 +200,7 @@ if __name__ == "__main__":
     
     # Replace this with whatever hardware you are running on 
     # hardware_name = "L40S_matx3"
-    hardware_name = "H100_PCIe_LambdaLabs"
+    hardware_name = "phantom_8090_Ti"
 
     input(f"You are about to start recording baseline time for {hardware_name}, press Enter to continue...")
     # Systematic recording of baseline time

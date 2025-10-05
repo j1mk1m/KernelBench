@@ -3,6 +3,7 @@ Helpers for Evaluations
 """
 
 import requests
+import shutil
 import torch
 import torch.nn as nn
 import os, subprocess
@@ -14,15 +15,10 @@ from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
 import sys
 
-from . import utils
+from src import utils
 
-REPO_TOP_PATH = os.path.abspath(
-    os.path.join(
-        os.path.dirname(__file__),
-        "..",
-    )
-)
-KERNEL_BENCH_PATH = os.path.join(REPO_TOP_PATH, "KernelBench")
+KB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+KERNEL_BENCH_PATH = os.path.join(KB_ROOT, "KernelBench")
 
 
 def fetch_kernel_from_database(
@@ -87,7 +83,7 @@ class KernelExecResult(BaseModel):
 
 
 def load_original_model_and_inputs(
-    model_original_src: str, context: dict
+    model_original_src: str, context: dict, model_name: str = None
 ) -> tuple[nn.Module, callable, callable]:
     """
     Load class from original NN.module pytorch code
@@ -98,13 +94,23 @@ def load_original_model_and_inputs(
         compile(model_original_src, "<string>", "exec")
     except SyntaxError as e:
         print(f"Syntax Error in original code {e}")
-        return None
+        return None, None, None
 
     try:
         exec(model_original_src, context)  # expose to current namespace
     except Exception as e:
-        print(f"Error in executing original code {e}")
-        return None
+        print(f"Failed to load model due to {e}. Trying to import from the file directly.")
+        if "." in model_name:
+            model_name = model_name.split(".")[0]
+        tmp_dir = os.path.join(KB_ROOT, "cache", "tmp", f"model_{model_name}.py")
+        os.makedirs(os.path.dirname(tmp_dir), exist_ok=True)
+        with open(tmp_dir, "w") as f:
+            f.write(model_original_src)
+        exec("import sys; sys.path.append('" + KB_ROOT + "/cache/tmp')", context)
+        exec(f"from model_{model_name} import Model, get_init_inputs, get_inputs", context)
+        Model, get_init_inputs, get_inputs = context["Model"], context["get_init_inputs"], context["get_inputs"]
+        print(f"Successfully loaded model from the file directly: {tmp_dir}") 
+        return (Model, get_init_inputs, get_inputs)
 
     # these should be defined in the original model code and present in the context
     get_init_inputs_fn = context.get("get_init_inputs")
@@ -114,7 +120,7 @@ def load_original_model_and_inputs(
 
 
 def load_custom_model(
-    model_custom_src: str, context: dict, build_directory: str = None
+    model_custom_src: str, context: dict, build_directory: str = None, model_custom_name: str = None
 ) -> nn.Module:
     """
     Load class from custom NN.module pytorch code
@@ -129,11 +135,25 @@ def load_custom_model(
 
     try:
         compile(model_custom_src, "<string>", "exec")
+    except Exception as e:
+        print(f"Syntax Error in custom generated code {e}")
+        raise e
+    
+    try:
         exec(model_custom_src, context)
-        # DANGER: need to delete refernece from global namespace
-    except SyntaxError as e:
-        print(f"Syntax Error in custom generated code or Compilation Error {e}")
-        return None
+    except Exception as e:
+        print(f"Failed to load model. Trying to import from the file directly.")
+        if "." in model_custom_name:
+            model_custom_name = model_custom_name.split(".")[0]
+        tmp_dir = os.path.join(KB_ROOT, "cache", "tmp", f"model_{model_custom_name}.py")
+        os.makedirs(os.path.dirname(tmp_dir), exist_ok=True)
+        with open(tmp_dir, "w") as f:
+            f.write(model_custom_src)
+        exec("import sys; sys.path.append('" + KB_ROOT + "/cache/tmp')", context)
+        exec(f"from model_{model_custom_name} import ModelNew", context)
+        ModelNew = context["ModelNew"]
+        print(f"Successfully loaded model from the file directly: {tmp_dir}") 
+        return ModelNew
 
     ModelNew = context.get("ModelNew")
     return ModelNew
@@ -294,6 +314,8 @@ def build_compile_cache_with_capturing(
 def eval_kernel_against_ref(
     original_model_src: str,
     custom_model_src: str,
+    original_model_name: str = None,
+    custom_model_name: str = None,
     seed_num: int = 42,
     num_correct_trials: int = 1,
     num_perf_trials: int = 10,
@@ -328,7 +350,7 @@ def eval_kernel_against_ref(
         print("[Eval] Loading Original Model")
 
     Model, get_init_inputs, get_inputs = load_original_model_and_inputs(
-        original_model_src, context
+        original_model_src, context, original_model_name
     )
     set_seed(seed_num)  # set seed for reproducible input
     init_inputs = get_init_inputs()
@@ -353,7 +375,7 @@ def eval_kernel_against_ref(
     try:
         os.environ["TORCH_USE_CUDA_DSA"] = "1"  # compile with device side assertion
         # add hash for later to distinguish between multi-turn kernels
-        ModelNew = load_custom_model(custom_model_src, context, build_dir)
+        ModelNew = load_custom_model(custom_model_src, context, build_dir, custom_model_name)
         torch.cuda.synchronize(device=device)  # not sure if this is too much
     except Exception as e:
         print(
@@ -368,12 +390,15 @@ def eval_kernel_against_ref(
                 f"[Eval] Lock file error during compilation, Please retry. Error: {e}"
             )
             graceful_eval_cleanup(context, device)
-            return None
+            metadata["other_error"] = str(e)
+            return KernelExecResult(
+                compiled=False, correctness=False, metadata=metadata
+            )
         else:
-            metadata["compilation_error"] = e
+            metadata["compilation_error"] = str(e)
             graceful_eval_cleanup(context, device)
             return KernelExecResult(
-                compiled=False, metadata=metadata
+                compiled=False, correctness=False, metadata=metadata
             )  # skip further steps
 
     # at this point we passed compilation
@@ -391,7 +416,7 @@ def eval_kernel_against_ref(
         )
         # TODO: add metadata for runtime error e.g. error in launching kernel, illegal memory access, ...
         graceful_eval_cleanup(context, device)
-        metadata["runtime_error"] = e
+        metadata["runtime_error"] = str(e)
         return KernelExecResult(
             compiled=True, correctness=False, metadata=metadata
         )  # skip further steps
@@ -414,7 +439,7 @@ def eval_kernel_against_ref(
         )
     except Exception as e:
         # TODO: add metadata for runtime error e.g. error in launching kernel, illegal memory access, ...
-        metadata["runtime_error"] = e
+        metadata["runtime_error"] = str(e)
         kernel_exec_result = KernelExecResult(
             compiled=True, correctness=False, metadata=metadata
         )
@@ -436,7 +461,7 @@ def eval_kernel_against_ref(
                 model_new = custom_model.cuda(device=device)
                 torch.cuda.synchronize(device=device)
 
-                elapsed_times = time_execution_with_cuda_event(
+                elapsed_times, profiler_info = time_execution_with_cuda_event(
                     model_new,
                     *inputs,
                     num_trials=num_perf_trials,
@@ -449,6 +474,7 @@ def eval_kernel_against_ref(
                     print(f"[Eval] Performance Stats: {runtime_stats}")
                 kernel_exec_result.runtime = runtime_stats["mean"]
                 kernel_exec_result.runtime_stats = runtime_stats
+                kernel_exec_result.metadata["profiler_info"] = profiler_info
         except Exception as e:
             if verbose:
                 print(f"[Eval] Error in Measuring Performance: {e}")
@@ -456,6 +482,95 @@ def eval_kernel_against_ref(
 
     graceful_eval_cleanup(context, device)
     return kernel_exec_result
+
+
+def eval_reference_kernel(
+    original_model_src: str,
+    original_model_name: str,
+    seed_num: int = 42,
+    num_correct_trials: int = 1,
+    num_perf_trials: int = 10,
+    verbose: bool = False,
+    device: torch.device = torch.cuda.current_device() if torch.cuda.is_available() else None, # have to run on GPU
+) -> KernelExecResult:
+    """
+    Evaluate the reference kernel
+    """
+    assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
+    torch.set_printoptions(
+        precision=4,  # Decimal places
+        threshold=10,  # Total number of elements before truncating
+        edgeitems=3,  # Number of elements at beginning and end of dimensions
+        linewidth=80,  # Maximum width before wrapping
+    )
+
+    # set CUDA device
+    torch.cuda.set_device(device)
+
+    context = {}
+
+    if verbose:
+        print(f"[Eval] Start Evalulation! on device: {device}")
+        print("[Eval] Loading Original Model")
+
+    Model, get_init_inputs, get_inputs = load_original_model_and_inputs(
+        original_model_src, context, original_model_name
+    )
+    set_seed(seed_num)  # set seed for reproducible input
+    init_inputs = get_init_inputs()
+    init_inputs = [
+        x.cuda(device=device) if isinstance(x, torch.Tensor) else x for x in init_inputs
+    ]
+
+    with torch.no_grad():
+        set_seed(seed_num)  # set seed for reproducible weights
+        original_model = Model(*init_inputs)
+        assert hasattr(original_model, "forward")
+        if verbose:
+            print("[Eval] Original Model Loaded")
+
+    metadata = {}  # for storing result metadata
+    metadata["hardware"] = torch.cuda.get_device_name(device=device)
+    metadata["device"] = str(device)  # for debugging
+    
+    kernel_exec_result = KernelExecResult(compiled=True, correctness=True, metadata=metadata)
+
+    try:
+        if verbose:
+            print("[Eval] Measuring Performance as Sample is Correct")
+
+        torch.cuda.synchronize(device=device)
+        set_seed(seed_num)
+        inputs = get_inputs()
+        inputs = [
+            x.cuda(device=device) if isinstance(x, torch.Tensor) else x
+            for x in inputs
+        ]
+        model = original_model.cuda(device=device)
+        torch.cuda.synchronize(device=device)
+
+        elapsed_times, profiler_info = time_execution_with_cuda_event(
+            model,
+            *inputs,
+            num_trials=num_perf_trials,
+            verbose=verbose,
+            device=device,
+        )
+        runtime_stats = get_timing_stats(elapsed_times, device=device)
+
+        if verbose:
+            print(f"[Eval] Performance Stats: {runtime_stats}")
+        kernel_exec_result.runtime = runtime_stats["mean"]
+        kernel_exec_result.runtime_stats = runtime_stats
+        kernel_exec_result.metadata["profiler_info"] = profiler_info
+    except Exception as e:
+        if verbose:
+            print(f"[Eval] Error in Measuring Performance: {e}")
+        kernel_exec_result.metadata["error_during_performance"] = e
+
+    graceful_eval_cleanup(context, device)
+    return kernel_exec_result
+
 
 
 def register_and_format_exception(
@@ -534,11 +649,20 @@ def time_execution_with_cuda_event(
 
         # Calculate the elapsed time in milliseconds
         elapsed_time_ms = start_event.elapsed_time(end_event)
-        if verbose:
-            print(f"Trial {trial + 1}: {elapsed_time_ms:.3g} ms")
+        # if verbose:
+        #     print(f"Trial {trial + 1}: {elapsed_time_ms:.3g} ms")
         elapsed_times.append(elapsed_time_ms)
 
-    return elapsed_times
+    # Record profiler information
+    with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA], record_shapes=True) as prof:
+        kernel_fn(*args)
+        torch.cuda.synchronize(device=device)
+
+    profiler_info = prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10)
+    if verbose:
+        print(f"[Profiling] Profiler Info: \n{profiler_info}")
+
+    return elapsed_times, profiler_info
 
 
 def run_and_check_correctness(
@@ -587,13 +711,28 @@ def run_and_check_correctness(
             set_seed(trial_seed)
             model_new = new_model_instance.cuda(device=device)
 
+            # Run the new model first
+            try:
+                output_new = model_new(*inputs)
+                torch.cuda.synchronize(device=device)
+            except Exception as e:
+                print("[Error] Exception happens during correctness check")
+                print(f"Error in launching kernel for ModelNew: {e}")
+
+                metadata = register_and_format_exception(
+                    "runtime_error", e, metadata, truncate=True
+                )
+                return KernelExecResult(
+                    compiled=True, correctness=False, metadata=metadata
+                )
+
+            # Run the reference model AFTER the new model as per [Kevin](https://cognition.ai/blog/kevin-32b)
             output = model(*inputs)
             torch.cuda.synchronize(device=device)
             # ensure all GPU operations are completed before checking results
 
             try:
-                output_new = model_new(*inputs)
-                torch.cuda.synchronize(device=device)
+                # Check shape mismatch
                 if output.shape != output_new.shape:
                     metadata = register_and_format_exception(
                         "correctness_issue",
@@ -626,15 +765,14 @@ def run_and_check_correctness(
 
             except Exception as e:
                 print("[Error] Exception happens during correctness check")
-                print(f"Error in launching kernel for ModelNew: {e}")
+                print(f"Error in launching kernel for Model: {e}")
 
                 metadata = register_and_format_exception(
                     "runtime_error", e, metadata, truncate=True
                 )
                 return KernelExecResult(
                     compiled=True, correctness=False, metadata=metadata
-                )
-                # break
+                ) 
 
     if verbose:
         print(
@@ -754,9 +892,3 @@ def get_timing_stats(elapsed_times: list[float], device: torch.device = None) ->
         stats["device"] = str(device)  # for debugging
 
     return stats
-
-
-# if __name__ == "__main__":
-# fetch_kernel_from_database("kernelbench_prompt_v2_level_2", 1, 1, "http://localhost:9091")
-# print(fetch_ref_arch_from_level_problem_id("2", 1, with_name=True))
-# fetch_baseline_time("level1", 0, ["1_Square_matrix_multiplication_.py"], "tests/baseline_time_matx3.json")
