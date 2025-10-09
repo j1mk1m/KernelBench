@@ -15,6 +15,7 @@ import math
 import os
 import json
 from tqdm import tqdm
+from dataclasses import dataclass
 
 # API clients
 from together import Together
@@ -50,6 +51,12 @@ FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY")
 # Inference Helpers
 ########################################################
 
+@dataclass
+class WorkArgs:
+    level: int
+    problem_id: int
+    sample_id: int
+
 @cache
 def load_deepseek_tokenizer():
     # TODO: Should we update this for new deepseek? Same tokenizer?
@@ -76,6 +83,8 @@ def set_gpu_arch(arch_list: list[str]):
     """
     Set env variable for torch cuda arch list to build kernels for specified architectures
     """
+    if isinstance(arch_list, str):
+        arch_list = [arch_list]
     valid_archs = ["Maxwell", "Pascal", "Volta", "Turing", "Ampere", "Hopper", "Ada"]
     for arch in arch_list:
         if arch not in valid_archs:
@@ -451,6 +460,15 @@ def read_file(file_path) -> str:
     except Exception as e:
         print(f"Error reading file {file_path}: {e}")
         return ""
+
+
+def read_json_file(file_path) -> dict:
+    if not os.path.exists(file_path):
+        print(f"File {file_path} does not exist")
+        return {}
+    
+    with open(file_path, "r") as file:
+        return json.load(file)
 
 
 def print_messages(messages):

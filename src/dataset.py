@@ -7,6 +7,8 @@ import random
 import re
 import hashlib
 
+from src.utils import read_file
+
 KB_ROOT = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__),
