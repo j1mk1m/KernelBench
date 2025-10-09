@@ -1,4 +1,5 @@
 import torch
+import argparse
 import numpy as np
 from src.eval import (
     load_original_model_and_inputs,
@@ -200,13 +201,16 @@ if __name__ == "__main__":
     
     # Replace this with whatever hardware you are running on 
     # hardware_name = "L40S_matx3"
-    hardware_name = "phantom_8090_Ti"
 
-    input(f"You are about to start recording baseline time for {hardware_name}, press Enter to continue...")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--hardware", type=str, default="H100_hyperbolic")
+    args = parser.parse_args()
+    hardware_name = args.hardware
+
+    print(f"You are about to start recording baseline time for {hardware_name}")
     # Systematic recording of baseline time
 
-    if os.path.exists(os.path.join(TIMING_DIR, hardware_name)):
-        input(f"Directory {hardware_name} already exists, Are you sure you want to overwrite? Enter to continue...")
+    assert not os.path.exists(os.path.join(TIMING_DIR, hardware_name)), f"Directory {hardware_name} already exists."
 
     # 1. Record Torch Eager
     record_baseline_times(use_torch_compile=False, 
@@ -215,17 +219,17 @@ if __name__ == "__main__":
                           file_name=f"{hardware_name}/baseline_time_torch.json")
     
     # 2. Record Torch Compile using Inductor
-    for torch_compile_mode in ["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"]:
-        record_baseline_times(use_torch_compile=True, 
-                              torch_compile_backend="inductor",
-                              torch_compile_options=torch_compile_mode, 
-                              file_name=f"{hardware_name}/baseline_time_torch_compile_inductor_{torch_compile_mode}.json")
+    # for torch_compile_mode in ["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"]:
+    #     record_baseline_times(use_torch_compile=True, 
+    #                           torch_compile_backend="inductor",
+    #                           torch_compile_options=torch_compile_mode, 
+    #                           file_name=f"{hardware_name}/baseline_time_torch_compile_inductor_{torch_compile_mode}.json")
  
-    # 3. Record Torch Compile using cudagraphs
-    record_baseline_times(use_torch_compile=True, 
-                          torch_compile_backend="cudagraphs",
-                          torch_compile_options=None, 
-                          file_name=f"{hardware_name}/baseline_time_torch_compile_cudagraphs.json")
+    # # 3. Record Torch Compile using cudagraphs
+    # record_baseline_times(use_torch_compile=True, 
+    #                       torch_compile_backend="cudagraphs",
+    #                       torch_compile_options=None, 
+    #                       file_name=f"{hardware_name}/baseline_time_torch_compile_cudagraphs.json")
     
 
 
