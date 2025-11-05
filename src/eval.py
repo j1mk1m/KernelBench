@@ -21,22 +21,6 @@ KB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KERNEL_BENCH_PATH = os.path.join(KB_ROOT, "KernelBench")
 
 
-def fetch_kernel_from_database(
-    run_name: str, problem_id: int, sample_id: int, server_url: str
-):
-    """
-    Intenral to us with our django database
-    Return a dict with kernel hash, kernel code, problem_id
-    """
-    response = requests.get(
-        f"{server_url}/get_kernel_by_run_problem_sample/{run_name}/{problem_id}/{sample_id}",
-        json={"run_name": run_name, "problem_id": problem_id, "sample_id": sample_id},
-    )
-    assert response.status_code == 200
-    response_json = response.json()
-    assert str(response_json["problem_id"]) == str(problem_id)
-    return response_json
-
 
 def fetch_ref_arch_from_problem_id(problem_id, problems, with_name=False) -> str:
     """

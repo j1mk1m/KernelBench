@@ -67,14 +67,14 @@ def write_kernel_to_disk(run_dir: str, level: int, problem_id: int, sample_id: i
 ################################################################################
 # Evaluation Fetching
 ################################################################################
-def check_if_eval_exists_local(level: int, problem_id: int, sample_id: int, eval_file_path: str) -> bool:
+def check_if_eval_exists_local(evaluation_id: str, eval_file_path: str) -> bool:
     """
     Check if evaluation result already exists in eval results file
     """
     if os.path.exists(eval_file_path):
         with open(eval_file_path, 'r') as f:
             eval_results = json.load(f)
-        return str(level) in eval_results and str(problem_id) in eval_results[str(level)] and str(sample_id) in eval_results[str(level)][str(problem_id)]
+        return str(evaluation_id) in eval_results
     return False
 
 
@@ -115,6 +115,40 @@ def fetch_baseline_results(level: int, problem_id: int, hardware: str):
         if int(prob_name.split("_")[0]) == problem_id:
             return results
     return None
+
+
+def add_to_eval_results_file(evaluation_id: str, task_id: str, solution_id: str, eval_result, eval_file_path: str):
+    """
+    Add evaluation result to eval results file
+    TODO: migrate database support
+    """
+    # Load existing results if file exists
+    if os.path.exists(eval_file_path):
+        with open(eval_file_path, 'r') as f:
+            eval_results = json.load(f)
+    else:
+        eval_results = {}
+    
+    # Add new result
+    if str(evaluation_id) not in eval_results:
+        eval_results[str(evaluation_id)] = {}
+
+    eval_results[str(evaluation_id)] = {
+        'task_id': task_id,
+        'solution_id': solution_id,
+        'compiled': eval_result.compiled,
+        'correctness': eval_result.correctness,
+        'metadata': check_metadata_serializable_all_types(eval_result.metadata),
+        'runtime': eval_result.runtime,
+        'runtime_stats': eval_result.runtime_stats,
+    }
+    
+    # Write updated results back to file
+    if not os.path.exists(eval_file_path):
+        os.makedirs(os.path.dirname(eval_file_path), exist_ok=True)
+        
+    with open(eval_file_path, "w") as f:
+        json.dump(eval_results, f, indent=2)
 
 
 def write_eval_result_to_separate_file(level, problem, sample_id, exec_result, run_dir):
